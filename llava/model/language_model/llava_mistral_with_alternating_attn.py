@@ -40,19 +40,19 @@ from .mask_utils import modality_ids_to_modality_attention_mask, combine_attenti
 
 logger = logging.get_logger(__name__)
 
-class LlavaMistralConfig(MistralConfig):
-    model_type = "llava_mistral"
+class LlavaMistralWithAlternatingAttnConfig(MistralConfig):
+    model_type = "llava_mistral_with_alternating_attn"
     temperature: float = 0.0  # reset to 0.0, previously 0.9 for Vicuna
     max_new_tokens: int = 1024
     do_sample: bool = False
     top_p: Optional[float] = None
 
 
-class LlavaMistralModel(LlavaMetaModel, MistralModel):
-    config_class = LlavaMistralConfig
+class LlavaMistralWithAlternatingAttnModel(LlavaMetaModel, MistralModel):
+    config_class = LlavaMistralWithAlternatingAttnConfig
 
     def __init__(self, config: MistralConfig):
-        super(LlavaMistralModel, self).__init__(config)
+        super(LlavaMistralWithAlternatingAttnModel, self).__init__(config)
 
     @add_start_docstrings_to_model_forward(MISTRAL_INPUTS_DOCSTRING)
     def forward(
@@ -206,16 +206,16 @@ class LlavaMistralModel(LlavaMetaModel, MistralModel):
             attentions=all_self_attns,
         )
 
-class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
-    config_class = LlavaMistralConfig
+class LlavaMistralWithAlternatingAttnForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
+    config_class = LlavaMistralWithAlternatingAttnConfig
 
     def __init__(self, config):
         super(MistralForCausalLM, self).__init__(config)
 
-        config.model_type = "llava_mistral"
+        config.model_type = "llava_mistral_with_alternating_attn"
         config.rope_scaling = None
 
-        self.model = LlavaMistralModel(config)
+        self.model = LlavaMistralWithAlternatingAttnModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         # Initialize weights and apply final processing
         self.post_init()
@@ -346,5 +346,5 @@ class LlavaMistralForCausalLM(MistralForCausalLM, LlavaMetaForCausalLM):
         return inputs
 
 
-AutoConfig.register("llava_mistral", LlavaMistralConfig)
-AutoModelForCausalLM.register(LlavaMistralConfig, LlavaMistralForCausalLM)
+AutoConfig.register("llava_mistral_with_alternating_attn", LlavaMistralWithAlternatingAttnConfig)
+AutoModelForCausalLM.register(LlavaMistralWithAlternatingAttnConfig, LlavaMistralWithAlternatingAttnForCausalLM)
