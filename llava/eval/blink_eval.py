@@ -72,6 +72,7 @@ def main():
         torch_dtype="float16",
         attn_implementation="eager"
     )
+    # Note: using anyres increase the memory usage and sometimes not suitable for multi-image setting.
     model.config.image_aspect_ratio = "nobase"
     
     # Load dataset
@@ -109,7 +110,7 @@ def main():
         image_tensors = [_image.to(dtype=torch.float16, device=args.device) for _image in image_tensors]
         image_sizes = [image.size for image in images]
 
-        output_ids = model.generate(
+        output = model.generate(
             input_ids,
             images=image_tensors,
             image_sizes=image_sizes,
@@ -117,8 +118,10 @@ def main():
             do_sample=False,
             max_new_tokens=256,
             use_cache=True,
+            output_attentions=False,
+            return_dict_in_generate=True,
         )
-        response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
+        response = tokenizer.batch_decode(output.sequences, skip_special_tokens=True)[0]
         correct, response_extracted = extract_and_validate_answer(response, item["answer"])
 
         results.append({
