@@ -344,7 +344,7 @@ class LlavaQwenWithAlternatingCrossAttnForCausalLM(Qwen2ForCausalLM, LlavaMetaFo
         image_sizes: Optional[torch.Tensor] = None,
         modalities: Optional[List[str]] = ["image"],
         **kwargs,
-    ) -> Union[GenerateOutput, torch.LongTensor]:
+    ) -> Tuple[Union[GenerateOutput, torch.LongTensor], torch.LongTensor]:
         modalities = kwargs.pop("modalities", None) if "modalities" in kwargs and modalities is None else modalities
         position_ids = kwargs.pop("position_ids", None)
         attention_mask = kwargs.pop("attention_mask", None)
@@ -356,7 +356,8 @@ class LlavaQwenWithAlternatingCrossAttnForCausalLM(Qwen2ForCausalLM, LlavaMetaFo
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
 
-        return super().generate(position_ids=position_ids, attention_mask=attention_mask, inputs_embeds=inputs_embeds, modality_ids=modality_ids, **kwargs)
+        output = super().generate(position_ids=position_ids, attention_mask=attention_mask, inputs_embeds=inputs_embeds, modality_ids=modality_ids, **kwargs)
+        return output, modality_ids
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
         images = kwargs.pop("images", None)
