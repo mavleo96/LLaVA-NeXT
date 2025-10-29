@@ -19,7 +19,7 @@ python scripts/blink_eval.py \
   --subtask "Visual_Correspondence" \
   --device "cuda:1" \
   --conv_template "qwen_2"
-```
+
 
 #### Options:
 | model_path | model_name | conv_template |
@@ -27,6 +27,17 @@ python scripts/blink_eval.py \
 | "liuhaotian/llava-v1.6-mistral-7b" | "llava_mistral" | "manual" |
 | "lmms-lab/llava-onevision-qwen2-7b-ov" | "llava_qwen" | "qwen_2" |
 | "lmms-lab/llava-onevision-qwen2-0.5b-ov" | "llava_qwen" | "qwen_2" |
+
+### Command to save attention matrix for Blink evaluation:
+
+python playground/attention_matrix_save_for_blink.py \
+  --model_path "lmms-lab/llava-onevision-qwen2-0.5b-ov" \
+  --model_name "llava_qwen_with_alternating_attn" \
+  --subtask Visual_Correspondence \
+  --device "cuda:1" \
+  --conv_template "qwen_2" \
+  --output_path "/data/vmurugan/llava-next/attention_outputs/llava_qwen2-0.5b_aa_unfinetuned_visualcorres_attention"
+```
 
 ### Command to create unfinetuned model checkpoint:
 ```
