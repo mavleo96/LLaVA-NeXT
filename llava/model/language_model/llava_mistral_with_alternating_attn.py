@@ -155,15 +155,18 @@ class LlavaMistralWithAlternatingAttnModel(LlavaMetaModel, MistralModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
+        n_layers = self.config.num_hidden_layers
         for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
+
+            condition = (idx == n_layers - 1) or (idx % 2 == 0)
 
             if self.gradient_checkpointing and self.training:
                 layer_outputs = self._gradient_checkpointing_func(
                     decoder_layer.__call__,
                     hidden_states,
-                    attention_mask if idx % 2 == 0 else modality_attention_mask,
+                    attention_mask if condition else modality_attention_mask,
                     position_ids,
                     past_key_values,
                     output_attentions,
@@ -172,7 +175,7 @@ class LlavaMistralWithAlternatingAttnModel(LlavaMetaModel, MistralModel):
             else:
                 layer_outputs = decoder_layer(
                     hidden_states,
-                    attention_mask=attention_mask if idx % 2 == 0 else modality_attention_mask,
+                    attention_mask=attention_mask if condition else modality_attention_mask,
                     position_ids=position_ids,
                     past_key_value=past_key_values,
                     output_attentions=output_attentions,
