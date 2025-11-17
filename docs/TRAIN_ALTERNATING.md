@@ -1,4 +1,4 @@
-## Quickstart: Training alternating-attention models (concise)
+## Quickstart: Training alternating-attention models
 
 This quickstart shows the minimal steps to train an alternating-attention model using the repository's existing training code and the helper wrapper `train_alternating.py`.
 
@@ -41,10 +41,10 @@ python train_alternating.py \
 
 If `--inspect_weights` shows a reasonable number of matched parameters, start full training (same flags but without `--inspect_weights`). You can also add `--throughput_log_steps 50` to get samples/sec traces.
 
-3) Quick note on verification: If you want to verify the wrapper will instantiate the alternating class without downloading weights, use `--dry_run`:
+3) Quick note on verification: To verify the wrapper will instantiate the alternating class without downloading weights, use `--dry_run`:
 
 ```bash
 python train_alternating.py --model_name_or_path your_repo/alternating_attn_checkpoint --dry_run
 ```
 
-That's it. See `docs/TRAIN_ALTERNATING_EXTENDED.md` for more examples, the selective-copy code snippet, and troubleshooting tips.
+See `docs/TRAIN_ALTERNATING_EXTENDED.md` for more examples.
