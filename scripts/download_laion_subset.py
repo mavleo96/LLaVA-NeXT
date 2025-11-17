@@ -1,115 +1,156 @@
+import argparse
+import io
 import os
-import json
-import random
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
 import requests
 from datasets import load_dataset
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
-import io
 from tqdm import tqdm
 
-# Step 1: Boost parallelism
-os.environ["HF_DATASETS_DOWNLOAD_PARALLELISM"] = "16"
-
-# Step 2: Stream LAION dataset
-dataset = load_dataset("laion/laion400m", split="train", streaming=True)
-
-# Step 3: Define folders
-imgFolder = r"./../data/laion_subset/laion_images"
-txtFolder = r"./../data/laion_subset/laion_txts"
-mapFile = r"./../data/laion_subset/download_map.json"
-
-# Step 4: Create local folders
-os.makedirs(imgFolder, exist_ok=True)
-os.makedirs(txtFolder, exist_ok=True)
-
-# Step 5: Load existing URL→filename map
-if os.path.exists(mapFile):
-    with open(mapFile, "r", encoding="utf-8") as f:
-        url_map = json.load(f)
-else:
-    url_map = {}
-
-# Step 6: Robust field access
-def get_url(example):
-    for k in ["URL", "url", "image_url"]:
-        if k in example and example[k]:
-            return example[k]
-    return None
-
-def get_text(example):
-    for k in ["TEXT", "text", "caption", "DESCRIPTION"]:
-        if k in example and example[k]:
-            return example[k]
-    return ""
-
-# Step 7: Filters
 def quality_filter(example):
-    caption = get_text(example)
+    caption = example.get("caption", "")
     return (
         example.get("NSFW") == "UNLIKELY"
         and example.get("similarity", 0) > 0.4
         and len(caption.strip()) > 5
     )
 
-# Step 8: Downloader with resolution check + JSON resume
-def download_example(example, idx):
-    url = get_url(example)
-    caption = get_text(example)
+def download_example(example, idx, img_folder, txt_folder):
+    url = example.get("url")
+    caption = example.get("caption", "")
 
-    if not url or not caption:
-        return False
-
-    # Resume: skip if URL already in map
-    if url in url_map:
-        return True
-
-    img_path = os.path.join(imgFolder, f"{idx}.jpg")
-    txt_path = os.path.join(txtFolder, f"{idx}.txt")
+    if not url:
+        return None
 
     try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            img = Image.open(io.BytesIO(response.content))
-            if img.width >= 512 and img.height >= 512:
-                img.save(img_path)
-                with open(txt_path, "w", encoding="utf-8") as f:
-                    f.write(caption)
-                # Update map
-                url_map[url] = {"image": img_path, "text": txt_path}
-                return True
-    except:
-        pass  # silently skip errors
+        resp = requests.get(url, timeout=15, stream=True)
+        resp.raise_for_status()
+        img = Image.open(io.BytesIO(resp.content))
 
-    return False
+        if img.width >= 512 and img.height >= 512:
+            img_path = os.path.join(img_folder, f"{idx}.jpg")
+            txt_path = os.path.join(txt_folder, f"{idx}.txt")
+            img.save(img_path)
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(caption)
+            return True
+    except Exception:
+        # Silently skip errors for individual downloads
+        pass
+    return None
 
-# Step 9: Collect a larger pool, then sample 50k
-pool_size = 100000   # collect more than needed
-max_samples = 50000
+# Stream and download with retry logic
+def get_dataset_with_retry(max_retries=5, retry_delay=5):
+    """Load dataset with retry logic for connection timeouts"""
+    for attempt in range(max_retries):
+        try:
+            print(f"Loading dataset (attempt {attempt + 1}/{max_retries})...")
+            # Increase timeout and add retry configuration
+            os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "300"
+            os.environ["HF_DATASETS_OFFLINE"] = "0"
+            dataset = load_dataset("laion/laion400m", split="train", streaming=True)
+            return dataset
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Failed to load dataset: {e}")
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                raise
 
-filtered_examples = []
+def main():
+    parser = argparse.ArgumentParser(description="Download a subset of LAION samples")
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        required=True,
+        help="Number of high-quality samples to download",
+    )
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default="/data/vmurugan/laion_subset",
+        help="Directory to save downloaded images and texts (default: data/vmurugan/laion_subset)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=32,
+        help="Number of parallel download workers (default: 8)",
+    )
+    args = parser.parse_args()
+    max_samples = max(args.num_samples, 0)
+    os.environ["HF_DATASETS_DOWNLOAD_PARALLELISM"] = str(args.workers)
 
-for example in dataset:
-    if len(filtered_examples) >= pool_size:
-        break
-    if quality_filter(example):
-        filtered_examples.append(example)
+    # Setup directories
+    img_folder = os.path.join(args.data_dir, "images")
+    txt_folder = os.path.join(args.data_dir, "captions")
+    os.makedirs(img_folder, exist_ok=True)
+    os.makedirs(txt_folder, exist_ok=True)
 
-# Randomly sample 50k from the pool
+    dataset = get_dataset_with_retry()
+    dataset_iter = iter(dataset)
+    pbar = tqdm(total=max_samples, desc="Downloading")
 
-sampled_examples = random.sample(filtered_examples, max_samples)
+    successful_downloads = 0
+    next_idx = 0
 
-# Step 10: Download sampled examples in parallel
-with ThreadPoolExecutor(max_workers=32) as executor:
-    futures = []
-    for idx, example in enumerate(sampled_examples):
-        futures.append(executor.submit(download_example, example, idx))
+    def process_done(finished_futures):
+        nonlocal successful_downloads
+        for future in finished_futures:
+            try:
+                if future.result():
+                    successful_downloads += 1
+                    pbar.update(1)
+            except Exception:
+                pass
 
-    for f in tqdm(as_completed(futures), total=len(futures), desc="Downloading"):
-        f.result()
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
+        pending = set()
 
-# Step 11: Save updated URL→filename map
-with open(mapFile, "w", encoding="utf-8") as f:
-    json.dump(url_map, f, indent=2)
+        try:
+            while successful_downloads < max_samples:
+                if pending and successful_downloads + len(pending) >= max_samples:
+                    done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                    process_done(done)
+                    continue
 
-print(f"Downloaded {len(sampled_examples)} randomly sampled high-quality samples")
+                try:
+                    example = next(dataset_iter)
+                except StopIteration:
+                    print("\nDataset exhausted before reaching requested samples")
+                    break
+                except Exception as e:
+                    print(f"\nError streaming dataset: {e}")
+                    print("Retrying in 5 seconds...")
+                    time.sleep(5)
+                    dataset = get_dataset_with_retry(max_retries=3, retry_delay=5)
+                    dataset_iter = iter(dataset)
+                    continue
+
+                if not quality_filter(example):
+                    continue
+
+                future = executor.submit(
+                    download_example, example, next_idx, img_folder, txt_folder
+                )
+                pending.add(future)
+                next_idx += 1
+
+                if pending:
+                    done, pending = wait(pending, timeout=0)
+                    process_done(done)
+        finally:
+            if pending:
+                done, _ = wait(pending)
+                process_done(done)
+            pbar.close()
+
+    print(f"Complete: {successful_downloads} / {max_samples} downloads")
+
+
+if __name__ == "__main__":
+    main()

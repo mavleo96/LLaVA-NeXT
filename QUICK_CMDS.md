@@ -11,3 +11,8 @@ python llava/eval/blink_eval.py \
   --subtask Visual_Correspondence \
   --device "cuda:1" \
   --conv_template "qwen_1_5"
+
+python scripts/download_laion_subset.py \
+  --num_samples 1000 \
+  --data_dir /data/vmurugan/laion_subset \
+  --workers 32
