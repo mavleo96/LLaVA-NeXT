@@ -147,6 +147,8 @@ class LlavaQwenWithAlternatingCrossAttnModel(LlavaMetaModel, Qwen2Model):
 
         if modality_ids is not None:
             cross_modality_attention_mask = modality_ids_to_cross_modality_attention_mask(modality_ids, (batch_size, seq_length), inputs_embeds.dtype)
+            if attention_mask is None:
+                attention_mask = torch.zeros_like(cross_modality_attention_mask)
             modality_attention_mask = combine_attention_masks(attention_mask, cross_modality_attention_mask)
 
         hidden_states = inputs_embeds
