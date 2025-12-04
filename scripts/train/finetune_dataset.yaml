@@ -1,0 +1,7 @@
+datasets:
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_aokvqa_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_chartqa_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_llava_wild_4v_39k_filtered.json
+    sampling_strategy: "all"
