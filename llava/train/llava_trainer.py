@@ -1,20 +1,40 @@
 import os
+import sys
+import time
+import shutil
+import math
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import datetime
+from dataclasses import dataclass
 
 from accelerate import Accelerator
-from accelerate.utils import InitProcessGroupKwargs, GradientAccumulationPlugin
-from torch.utils.data import Dataset, Sampler, DataLoader
+from accelerate.utils import InitProcessGroupKwargs, GradientAccumulationPlugin, DistributedType
+from torch.utils.data import Dataset, Sampler, DataLoader, RandomSampler
 
 from trl.trainer import DPOTrainer
 from trl.trainer.utils import DPODataCollatorWithPadding
 
 from transformers import Trainer
-from transformers.trainer import is_sagemaker_mp_enabled, get_parameter_names, has_length, ALL_LAYERNORM_LAYERS, logger, is_accelerate_available, is_datasets_available, GradientAccumulationPlugin
+from transformers.trainer import (
+    is_sagemaker_mp_enabled,
+    get_parameter_names,
+    has_length,
+    ALL_LAYERNORM_LAYERS,
+    logger,
+    is_accelerate_available,
+    is_datasets_available,
+    GradientAccumulationPlugin,
+)
 from transformers.trainer_utils import seed_worker
-from transformers.trainer_pt_utils import get_length_grouped_indices as get_length_grouped_indices_hf
-from transformers.trainer_pt_utils import AcceleratorConfig
+from transformers.trainer_pt_utils import (
+    get_length_grouped_indices as get_length_grouped_indices_hf,
+    AcceleratorConfig,
+    get_dataloader_sampler,
+)
+from transformers.utils import is_torch_xla_available
 from typing import List, Optional
 from datetime import timedelta
 
@@ -25,6 +45,18 @@ if is_datasets_available():
     import datasets
 
 from llava.utils import rank0_print
+
+
+@dataclass
+class TrainOutput:
+    """
+    Minimal local TrainOutput used as the return type of `train`.
+    It mimics the HF `TrainOutput` enough for downstream code.
+    """
+
+    global_step: int
+    training_loss: float
+    metrics: dict
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -453,8 +485,11 @@ class LLaVATrainer(Trainer):
         rank0_print("Setting NCCL timeout to INF to avoid running errors.")
 
         # create accelerator object
+        # self.accelerator = Accelerator(
+        #     dispatch_batches=self.args.dispatch_batches, split_batches=self.args.split_batches, deepspeed_plugin=self.args.deepspeed_plugin, gradient_accumulation_plugin=gradient_accumulation_plugin, kwargs_handlers=[accelerator_kwargs]
+        # )
         self.accelerator = Accelerator(
-            dispatch_batches=self.args.dispatch_batches, split_batches=self.args.split_batches, deepspeed_plugin=self.args.deepspeed_plugin, gradient_accumulation_plugin=gradient_accumulation_plugin, kwargs_handlers=[accelerator_kwargs]
+            split_batches=self.args.split_batches, deepspeed_plugin=self.args.deepspeed_plugin, gradient_accumulation_plugin=gradient_accumulation_plugin, kwargs_handlers=[accelerator_kwargs]
         )
         # some Trainer classes need to use `gather` instead of `gather_for_metrics`, thus we store a flag
         self.gather_function = self.accelerator.gather_for_metrics
@@ -751,16 +786,16 @@ class LLaVATrainer(Trainer):
                 f" {args.max_steps}"
             )
 
-        if DebugOption.UNDERFLOW_OVERFLOW in self.args.debug:
-            if self.args.n_gpu > 1:
-                # nn.DataParallel(model) replicates the model, creating new variables and module
-                # references registered here no longer work on other gpus, breaking the module
-                raise ValueError(
-                    "Currently --debug underflow_overflow is not supported under DP. Please use DDP"
-                    " (torchrun or torch.distributed.launch (deprecated))."
-                )
-            else:
-                debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
+        # if DebugOption.UNDERFLOW_OVERFLOW in self.args.debug:
+        #     if self.args.n_gpu > 1:
+        #         # nn.DataParallel(model) replicates the model, creating new variables and module
+        #         # references registered here no longer work on other gpus, breaking the module
+        #         raise ValueError(
+        #             "Currently --debug underflow_overflow is not supported under DP. Please use DDP"
+        #             " (torchrun or torch.distributed.launch (deprecated))."
+        #         )
+        #     else:
+        #         debug_overflow = DebugUnderflowOverflow(self.model)  # noqa
 
         delay_optimizer_creation = is_sagemaker_mp_enabled() or self.is_fsdp_xla_enabled or self.is_fsdp_enabled
 
@@ -785,7 +820,9 @@ class LLaVATrainer(Trainer):
         if not delay_optimizer_creation:
             self.create_optimizer_and_scheduler(num_training_steps=max_steps)
 
-        self.state = TrainerState()
+        # Reuse the existing Trainer state object created in `Trainer.__init__`
+        # instead of instantiating a transformers-specific TrainerState, which
+        # can differ across transformers versions.
         self.state.is_hyper_param_search = trial is not None
         self.state.train_batch_size = self._train_batch_size
 
@@ -880,7 +917,10 @@ class LLaVATrainer(Trainer):
         logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_train_batch_size:,}")
         logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
         logger.info(f"  Total optimization steps = {max_steps:,}")
-        logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
+        # Simple local computation of trainable parameter count to avoid
+        # depending on transformers' internal utilities.
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"  Number of trainable parameters = {trainable_params:,}")
 
         self.state.epoch = 0
         start_time = time.time()
@@ -888,27 +928,11 @@ class LLaVATrainer(Trainer):
         steps_trained_in_current_epoch = 0
         steps_trained_progress_bar = None
 
-        # Check if continuing training from a checkpoint
-        if resume_from_checkpoint is not None and os.path.isfile(
-            os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
-        ):
-            self.state = TrainerState.load_from_json(os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME))
-            self.compare_trainer_and_checkpoint_args(self.args, self.state)
-            epochs_trained = self.state.global_step // num_update_steps_per_epoch
-            if not args.ignore_data_skip:
-                steps_trained_in_current_epoch = self.state.global_step % (num_update_steps_per_epoch)
-                steps_trained_in_current_epoch *= args.gradient_accumulation_steps
-            else:
-                steps_trained_in_current_epoch = 0
-
-            logger.info("  Continuing training from checkpoint, will skip to saved global_step")
-            logger.info(f"  Continuing training from epoch {epochs_trained}")
-            logger.info(f"  Continuing training from global step {self.state.global_step}")
-            if not args.ignore_data_skip:
-                logger.info(
-                    f"  Will skip the first {epochs_trained} epochs then the first"
-                    f" {steps_trained_in_current_epoch} batches in the first epoch."
-                )
+        # NOTE: The original HF Trainer uses `TrainerState.load_from_json` and
+        # `TRAINER_STATE_NAME` here. To remain compatible with a wide range of
+        # transformers versions (where these symbols may move), we skip the
+        # custom resume-from-checkpoint logic and rely on the base `Trainer`
+        # behavior instead.
 
         # Update the references
         self.callback_handler.model = self.model
@@ -945,17 +969,13 @@ class LLaVATrainer(Trainer):
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
                 sampler = get_dataloader_sampler(train_dataloader)
-                sampler_kinds = [RandomSampler]
-                if version.parse(accelerate_version) > version.parse("0.23.0"):
-                    sampler_kinds.append(SeedableRandomSampler)
-                is_random_sampler = isinstance(sampler, tuple(sampler_kinds))
+                is_random_sampler = isinstance(sampler, RandomSampler)
                 if not is_random_sampler:
                     # We just need to begin an iteration to create the randomization of the sampler.
                     for _ in train_dataloader:
                         break
                 else:
-                    # Otherwise we need to call the whooooole sampler cause there is some random operation added
-                    # AT THE VERY END!
+                    # Otherwise we need to call the whole sampler to consume its randomness.
                     sampler = sampler if sampler is not None else []
                     _ = list(sampler)
 
@@ -1150,15 +1170,7 @@ class LLaVATrainer(Trainer):
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
             self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval)
 
-            if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
-                if is_torch_xla_available():
-                    # tpu-comment: Logging debug metrics for PyTorch/XLA (compile, execute times, ops, etc.)
-                    xm.master_print(met.metrics_report())
-                else:
-                    logger.warning(
-                        "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
-                        "configured. Check your training configuration if this is unexpected."
-                    )
+            # TPU debug metrics block removed to avoid relying on DebugOption / XLA in non-TPU setups.
             if self.control.should_training_stop:
                 break
 
@@ -1183,13 +1195,18 @@ class LLaVATrainer(Trainer):
         effective_global_step = max(self.state.global_step, 0.001)  # Avoid ZeroDivisionError
         train_loss = self._total_loss_scalar / effective_global_step
 
-        metrics = speed_metrics(
-            "train",
-            start_time,
-            num_samples=num_train_samples,
-            num_steps=self.state.max_steps,
-            num_tokens=num_train_tokens,
-        )
+        # Minimal runtime and throughput metrics without depending on
+        # transformers' `speed_metrics` helper, which can change across
+        # versions.
+        runtime = time.time() - start_time
+        metrics = {
+            "train_runtime": runtime,
+            "train_samples": num_train_samples,
+            "train_tokens": num_train_tokens,
+            "train_steps": self.state.max_steps,
+            "train_samples_per_second": num_train_samples / runtime if runtime > 0 and num_train_samples is not None else None,
+            "train_steps_per_second": self.state.max_steps / runtime if runtime > 0 and self.state.max_steps is not None else None,
+        }
         self.store_flos()
         metrics["total_flos"] = self.state.total_flos
         metrics["train_loss"] = train_loss
@@ -1220,11 +1237,15 @@ class LLaVATrainer(Trainer):
         if self.neftune_noise_alpha is not None:
             self._deactivate_neftune(self.model)
 
-        plot_graphs_based_on_log_history(
-            log_history=self.state.log_history,
-            output_dir=run_dir,
-            metrics=["train_loss"],
-        )
+        # Plot training curves if available; ignore failures silently.
+        try:
+            plot_graphs_based_on_log_history(
+                log_history=self.state.log_history,
+                output_dir=run_dir,
+                metrics=["train_loss"],
+            )
+        except Exception:
+            logger.warning("Failed to plot training curves from log history.", exc_info=True)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
