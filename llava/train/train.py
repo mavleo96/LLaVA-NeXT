@@ -1417,6 +1417,24 @@ def get_model(model_args, training_args, bnb_model_from_pretrained_args):
                 from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeSparseMoeBlock
 
                 deepspeed.utils.set_z3_leaf_modules(model, [Qwen2MoeSparseMoeBlock])
+            elif "with_alternating_attn" in model_args.model_name_or_path.lower():
+                model = LlavaQwenWithAlternatingAttnForCausalLM.from_pretrained(
+                    model_args.model_name_or_path,
+                    cache_dir=training_args.cache_dir,
+                    attn_implementation=training_args.attn_implementation,
+                    torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+                    low_cpu_mem_usage=False,
+                    **customized_kwargs,
+                )
+            elif "with_alternating_cross_attn" in model_args.model_name_or_path.lower():
+                model = LlavaQwenWithAlternatingCrossAttnForCausalLM.from_pretrained(
+                    model_args.model_name_or_path,
+                    cache_dir=training_args.cache_dir,
+                    attn_implementation=training_args.attn_implementation,
+                    torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
+                    low_cpu_mem_usage=False,
+                    **customized_kwargs,
+                )
             else:
                 model = LlavaQwenForCausalLM.from_pretrained(
                     model_args.model_name_or_path,
@@ -1516,10 +1534,21 @@ def train(attn_implementation=None):
     if training_args.lora_enable:
         from peft import LoraConfig, get_peft_model
 
+        # Below code creates lora adapters for parts of the model specified in model_args.mm_tunable_parts
+        # If model_args.mm_tunable_parts is not specified, it will create lora adapters for all linear layers in the model
+        m_list = find_all_linear_names(model)
+        if model_args.mm_tunable_parts is not None:
+            tunable_parts = model_args.mm_tunable_parts.split(",")
+            tunable_parts = [i if i != "mm_language_model" else "layers" for i in tunable_parts]
+            # Create a regex string to match the parts of the model to train
+            target_modules_arg = f"model.({'|'.join(tunable_parts)}).+{'(' + '|'.join(m_list) + ')'}"
+        else:
+            target_modules_arg = m_list
+
         lora_config = LoraConfig(
             r=training_args.lora_r,
             lora_alpha=training_args.lora_alpha,
-            target_modules=find_all_linear_names(model),
+            target_modules=target_modules_arg,
             lora_dropout=training_args.lora_dropout,
             bias=training_args.lora_bias,
             task_type="CAUSAL_LM",
@@ -1612,7 +1641,12 @@ def train(attn_implementation=None):
         model.config.mm_spatial_pool_stride = model_args.mm_spatial_pool_stride
 
         ### Deciding train which part of the model
-        if model_args.mm_tunable_parts is None:  # traditional way of deciding which part to train
+        if training_args.lora_enable:
+            # In case of lora enable, we don't need to decide which part of the model to train
+            # because the lora adapters are created according to the model_args.mm_tunable_parts
+            # and we will train the lora adapters
+            pass
+        elif model_args.mm_tunable_parts is None:  # traditional way of deciding which part to train
             model.config.tune_mm_mlp_adapter = training_args.tune_mm_mlp_adapter = model_args.tune_mm_mlp_adapter
             model.config.tune_mm_vision_resampler = training_args.tune_mm_vision_resampler = model_args.tune_mm_vision_resampler
             if model_args.tune_mm_mlp_adapter or model_args.tune_mm_vision_resampler:
