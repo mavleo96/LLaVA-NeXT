@@ -17,7 +17,14 @@ python scripts/download_laion_subset.py \
   --data_dir /data/vmurugan/laion_subset \
   --workers 32
 
-
 huggingface-cli download lmms-lab/llava-onevision-qwen2-0.5b-ov \
     --local-dir /workspace/checkpoints/llava-onevision-qwen2-0.5b-ov-with_alternating_attn \
     --local-dir-use-symlinks False
+
+python llava/eval/blink_eval.py \
+  --model_path "/workspace/checkpoints/llava-onevision-qwen2-0.5b-ov-with_alternating_attn" \
+  --model_name "llava_qwen"  \
+  --lora_weights_path "/workspace/checkpoints/llava-onevision-qwen2-0.5b-ov-with_alternating_attn-finetune/checkpoint-11000" \
+  --subtask Visual_Correspondence \
+  --device "cuda:1" \
+  --conv_template "qwen_1_5"
