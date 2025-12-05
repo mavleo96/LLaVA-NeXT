@@ -22,9 +22,12 @@ chartqa: 18260 (chart based vqa)
 clevr: 69995 (solid geometric objects based position vqa)
 tqa/iconqa(clash): 27302 (icons)
 raven: 41995 (iq questions)
+visual7w: 14361 (general image captioning)
 
 Vision Flan: 186060 (vision based multiple choice questions)
+Image Textualization: 99573 (image textualization)
 
+Total: 188447 (cauldron) + 186060 (vision flan) + 99573 (captioning) = 474080
 
 GPU Details:
 (llava2) root@C.28511690:/workspace/LLaVA-NeXT$ nvidia-smi

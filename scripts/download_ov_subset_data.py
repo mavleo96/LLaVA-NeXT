@@ -14,10 +14,16 @@ import json
 # CONFIG_FILE_NAME = "ov_tqa_cauldron_llava_format.json"
 # CONFIG_NAME = "raven(cauldron)"
 # CONFIG_FILE_NAME = "ov_raven_cauldron.json"
+CONFIG_NAME = "visual7w(cauldron,llava_format)"
+CONFIG_FILE_NAME = "ov_visual7w_cauldron_llava_format.json"
 
 # Vision Flan
-CONFIG_NAME = "vision_flan(filtered)"
-CONFIG_FILE_NAME = "ov_vision_flan_filtered.json"
+# CONFIG_NAME = "vision_flan(filtered)"
+# CONFIG_FILE_NAME = "ov_vision_flan_filtered.json"
+
+# Image Captioning
+# CONFIG_NAME = "image_textualization(filtered)"
+# CONFIG_FILE_NAME = "ov_image_textualization_filtered.json"
 
 data = load_dataset(
     "lmms-lab/LLaVA-OneVision-Data",
