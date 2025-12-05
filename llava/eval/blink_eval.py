@@ -7,15 +7,17 @@ which tests visual correspondence between images.
 """
 
 import argparse
+import json
+import re
 import torch
 from tqdm import tqdm
 from datasets import load_dataset
-import json
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import tokenizer_image_token, process_images
 from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
 from llava.conversation import conv_templates
 from llava.utils import disable_torch_init
+from peft import PeftModel
 
 from collections import Counter
 
@@ -30,7 +32,6 @@ def extract_and_validate_answer(response, correct_answer):
     response = response.replace("Answer:", "").replace("ANSWER:", "").replace("Point", "").strip().upper()
     
     # Extract just the letter if it exists
-    import re
     letter_match = re.search(r'[A-D]', response)
     if letter_match:
         response = letter_match.group()
@@ -48,6 +49,7 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate LLaVA-NeXT on Blink benchmark")
     parser.add_argument("--model_path", type=str, required=True, help="Path to model")
     parser.add_argument("--model_name", type=str, default="llava_mistral", help="Model name")
+    parser.add_argument("--lora_weights_path", type=str, default=None, help="Path to lora weights")
     parser.add_argument("--output_path", type=str, default="blink_results.json", help="Output path for results")
     parser.add_argument("--conv_template", type=str, default="mistral_instruct", help="Conversation template")
     parser.add_argument("--device", type=str, default="cuda:0", help="Device to use")
@@ -74,6 +76,9 @@ def main():
     )
     # Note: using anyres increase the memory usage and sometimes not suitable for multi-image setting.
     model.config.image_aspect_ratio = "nobase"
+    if args.lora_weights_path:
+        model = PeftModel.from_pretrained(model, args.lora_weights_path)
+        model = model.merge_and_unload()
     
     # Load dataset
     dataset = load_dataset("BLINK-Benchmark/BLINK", args.subtask, split="val")
