@@ -1,0 +1,17 @@
+datasets:
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_vision_flan_filtered.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_image_textualization_filtered.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_clevr_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_tqa_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_raven_cauldron.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_aokvqa_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_chartqa_cauldron_llava_format.json
+    sampling_strategy: "all"
+  - json_path: /workspace/data/LLaVA-OneVision-Data/ov_visual7w_cauldron_llava_format.json
+    sampling_strategy: "all"

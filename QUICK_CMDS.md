@@ -16,3 +16,8 @@ python scripts/download_laion_subset.py \
   --num_samples 1000 \
   --data_dir /data/vmurugan/laion_subset \
   --workers 32
+
+
+huggingface-cli download lmms-lab/llava-onevision-qwen2-0.5b-ov \
+    --local-dir /workspace/checkpoints/llava-onevision-qwen2-0.5b-ov-with_alternating_attn \
+    --local-dir-use-symlinks False

@@ -147,7 +147,8 @@ class LlavaQwenWithAlternatingAttnModel(LlavaMetaModel, Qwen2Model):
 
         if modality_ids is not None:
             modality_attention_mask = modality_ids_to_modality_attention_mask(modality_ids, (batch_size, seq_length), inputs_embeds.dtype)
-            modality_attention_mask = combine_attention_masks(attention_mask, modality_attention_mask)
+            if attention_mask is not None:
+                modality_attention_mask = combine_attention_masks(attention_mask, modality_attention_mask)
 
         hidden_states = inputs_embeds
 
@@ -248,7 +249,9 @@ class LlavaQwenWithAlternatingAttnForCausalLM(Qwen2ForCausalLM, LlavaMetaForCaus
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         if inputs_embeds is None:
-            (input_ids, position_ids, attention_mask, past_key_values, inputs_embeds, labels, _) = self.prepare_inputs_labels_for_multimodal(input_ids, position_ids, attention_mask, past_key_values, labels, images, modalities, image_sizes)
+            (input_ids, position_ids, attention_mask, past_key_values, inputs_embeds, labels, _modality_ids) = self.prepare_inputs_labels_for_multimodal(input_ids, position_ids, attention_mask, past_key_values, labels, images, modalities, image_sizes)
+            if modality_ids is None:
+                modality_ids = _modality_ids
 
         # This is a hack to update the modality ids in generation since the logic to recursively update the ids is too much refactor
         if modality_ids is not None:
