@@ -72,7 +72,7 @@ ACCELERATE_CPU_AFFINITY=1 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node "${
   --tf32 True \
   --run_name "${RUN_NAME}" \
   --output_dir "${OUTPUT_DIR}" \
-  --num_train_epochs 1 \
+  --num_train_epochs 4 \
   --per_device_train_batch_size 4 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 4 \
@@ -89,12 +89,13 @@ ACCELERATE_CPU_AFFINITY=1 CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node "${
   --weight_decay 0.0 \
   --warmup_ratio 0.03 \
   --lr_scheduler_type "cosine" \
-  --logging_steps 100 \
+  --logging_steps 10 \
   --model_max_length 2048 \
   --gradient_checkpointing False \
   --dataloader_num_workers 4 \
   --lazy_preprocess True \
-  --report_to "none" \
+  --report_to "tensorboard" \
+  --logging_dir "${OUTPUT_DIR}/logs" \
   --torch_compile False \
   --dataloader_drop_last True \
   --frames_upbound 32
