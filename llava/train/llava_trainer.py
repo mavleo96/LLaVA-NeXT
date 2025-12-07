@@ -1237,15 +1237,7 @@ class LLaVATrainer(Trainer):
         if self.neftune_noise_alpha is not None:
             self._deactivate_neftune(self.model)
 
-        # Plot training curves if available; ignore failures silently.
-        try:
-            plot_graphs_based_on_log_history(
-                log_history=self.state.log_history,
-                output_dir=run_dir,
-                metrics=["train_loss"],
-            )
-        except Exception:
-            logger.warning("Failed to plot training curves from log history.", exc_info=True)
+        # Note: Training curves can be viewed via TensorBoard or wandb if enabled via --report_to
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
