@@ -60,5 +60,5 @@ for da in tqdm(dataset):
     # Save data
     converted_data.append(json_data)
 
-with open(os.path.join(image_folder, "synthetic_visualcorres_data.json"), "w") as f:
+with open(os.path.join(os.path.dirname(image_folder), "synthetic_visualcorres_data.json"), "w") as f:
     json.dump(converted_data, f, indent=4, ensure_ascii=False)
