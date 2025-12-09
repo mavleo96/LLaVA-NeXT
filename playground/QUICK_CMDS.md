@@ -19,7 +19,7 @@ python scripts/blink_eval.py \
   --subtask "Visual_Correspondence" \
   --device "cuda:1" \
   --conv_template "qwen_2"
-
+```
 
 #### Options:
 | model_path | model_name | conv_template |
@@ -29,7 +29,7 @@ python scripts/blink_eval.py \
 | "lmms-lab/llava-onevision-qwen2-0.5b-ov" | "llava_qwen" | "qwen_2" |
 
 ### Command to save attention matrix for Blink evaluation:
-
+```
 python playground/attention_matrix_save_for_blink.py \
   --model_path "/workspace/checkpoints/llava-onevision-qwen2-0.5b-ov-with_alternating_attn" \
   --model_name "llava_qwen_with_alternating_attn" \
