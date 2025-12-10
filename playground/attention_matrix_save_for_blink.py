@@ -97,7 +97,7 @@ def main():
         image_sizes = [image.size for image in images]
 
         with torch.inference_mode():
-            output, modality_ids = model.generate(
+            output = model.generate(
                 input_ids,
                 images=image_tensors,
                 image_sizes=image_sizes,
@@ -108,7 +108,8 @@ def main():
                 output_attentions=True,
                 return_dict_in_generate=True,
             )
-
+            modality_ids = model.prepare_inputs_labels_for_multimodal(input_ids, None, None, None, None, image_tensors, ["image"], image_sizes)[6]
+        
         attention_matrices = output.attentions
         if attention_matrices:
             first_step = attention_matrices[0]
